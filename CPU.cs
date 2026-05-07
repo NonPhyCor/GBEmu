@@ -5,6 +5,9 @@ public class CPU
     public byte A,B,C,D,E,H,L;
     public byte F;
     public ushort PC,SP;
+    public bool IME;
+    private bool _pendingIME;
+    public bool Halted;
     //F Flags
     private const byte Z_FLAG=0x80;
     private const byte N_FLAG=0x40;
@@ -91,6 +94,7 @@ public class CPU
         byte val;
         sbyte sval;
         byte opcode = Read8Bit();
+        ushort a;
         switch (opcode)
         {
             case 0x00:
@@ -124,9 +128,7 @@ public class CPU
             case 0x0B:  BC--;break;
             case 0x0C:  C=Inc8(C);break;
             case 0x0D:  C=Dec8(C);break;
-            case 0x0E:
-                C = Read8Bit();
-                break;
+            case 0x0E:  C = Read8Bit();break;
             case 0x0F:
                 SetFlag(C_FLAG, (A & 0x01) != 0);
                 A = (byte)((A >> 1) | (A << 7));
@@ -304,7 +306,7 @@ public class CPU
             case 0x73:  _bus.Write(HL, E); break;
             case 0x74:  _bus.Write(HL, H); break;
             case 0x75:  _bus.Write(HL, L); break;
-            //case 0x76:  
+            case 0x76:  Halted=true;break;
             case 0x77:  _bus.Write(HL, A); break;
             case 0x78:  A=B; break;
             case 0x79:  A=C; break;
@@ -378,6 +380,23 @@ public class CPU
             case 0xBD:  Compare8(L);break;
             case 0xBE:  Compare8(_bus.Read(HL));break;
             case 0xBF:  Compare8(A);break;
+            case 0xC0:  if(!GetFlag(Z_FLAG)) PC = StackPop();break;
+            case 0xC1:  BC=StackPop();break;
+            case 0xC2:
+                ushort addr = Read16Bit();
+                if (!GetFlag(Z_FLAG))
+                    PC = addr;
+                break;
+            case 0xC3:  PC=Read16Bit();break;
+            case 0xC4:
+                a = Read16Bit();
+                if(!GetFlag(Z_FLAG))
+                {
+                    StackPush(PC);
+                    PC = a;
+                }
+                break;
+            case 0xC5:  StackPush(BC);break;
             case 0xC6:
                 val = Read8Bit();
                 SetFlag(H_FLAG, (A & 0x0F) + (val & 0x0F) > 0x0F);
@@ -386,23 +405,86 @@ public class CPU
                 SetFlag(Z_FLAG, A == 0);
                 SetFlag(N_FLAG, false);
                 break;
+            case 0xC7:
+                StackPush(PC);
+                PC=0x0000;
+                break;
+            case 0xC8:  if(GetFlag(Z_FLAG)) PC=StackPop();break;
             case 0xC9: PC = StackPop(); break;
+            case 0xCA:  
+                a = Read16Bit();
+                if(GetFlag(Z_FLAG)) PC=a;
+                break;
             case 0xCB:
                 byte CBOC = Read8Bit();
                 ExecuteCB(CBOC);
+                break;
+            case 0xCC:
+                a = Read16Bit();
+                if(GetFlag(Z_FLAG))
+                {
+                    StackPush(PC);
+                    PC=a;
+                }
                 break;
             case 0xCD:
                 ushort dest = Read16Bit();
                 StackPush(PC);
                 PC = dest;
                 break;
+            case 0xCE:  Adc8(Read8Bit());break;
+            case 0xCF:
+                StackPush(PC);
+                PC=0x0008;
+                break;
+            case 0xD0:  if(!GetFlag(C_FLAG)) PC=StackPop();break;
+            case 0xD1:  DE=StackPop();break;
+            case 0xD2:
+                a=Read16Bit();
+                if(!GetFlag(C_FLAG)) PC=a;
+                break;
+            //case 0xD3: does not exist
+            case 0xD4:
+                a=Read16Bit();
+                if(!GetFlag(C_FLAG))
+                {
+                    StackPush(PC);
+                    PC=a;
+                }
+                break;
+            case 0xD5:  StackPush(DE);break;
+            case 0xD6:  Sub8(Read8Bit());break;
+            case 0xD7:  StackPush(PC);PC=0x0010;break;
+            case 0xD8:  if(GetFlag(C_FLAG)) PC=StackPop();break;
+            case 0xD9:  PC = StackPop();IME=true;break;
+            case 0xDA:
+                a=Read16Bit();
+                if(GetFlag(C_FLAG)) PC=a;
+                break;
+            //case 0xDB: does not exist
+            case 0xDC:
+                a=Read16Bit();
+                if(GetFlag(C_FLAG))
+                {
+                    StackPush(PC);
+                    PC=a;
+                }
+                break;
+            //case 0xDD: does not exist
+            case 0xDE:  Sbc8(Read8Bit());break;
+            case 0xDF:  StackPush(PC);PC=0x0018;break;
             case 0xE0:
                 _bus.Write((ushort)(0xFF00 + Read8Bit()), A);
                 break;
+            case 0xE1:  HL=StackPop();break;
             case 0xE2:
                 _bus.Write((ushort)(0xFF00 + C), A);
                 break;
-            case 0xE6: A &= Read8Bit(); SetFlags(true); break;
+            //case 0xE3: does not exisr
+            //case 0xE4: does not exisr
+            case 0xE5:  StackPush(HL);break;
+            case 0xE6:  A&=Read8Bit();SetFlags(true);break;
+            case 0xE7:  StackPush(PC);PC=0x0020;break;
             case 0xE8:
                 sval = Read8SignedBit();
                 SetFlag(Z_FLAG, false);
@@ -411,21 +493,40 @@ public class CPU
                 SetFlag(C_FLAG, (SP & 0xFF) + (sval & 0xFF) > 0xFF);
                 SP = (ushort)(SP + sval);
                 break;
+            case 0xE9:  PC=HL;break;
             case 0xEA:
                 _bus.Write(Read16Bit(), A);
                 break;
-            case 0xEE: A ^= Read8Bit(); SetFlags(false); break;
+            case 0xEE:  A^=Read8Bit();SetFlags(false);break;
+            case 0xEF:  StackPush(PC);PC=0x0028;break;
             case 0xF0:
                 A = _bus.Read((ushort)(0xFF00 + Read8Bit()));
                 break;
+            case 0xF1:  AF=StackPop();break;
             case 0xF2:
                 A = _bus.Read((ushort)(0xFF00 + C));
                 break;
-            case 0xF6: A |= Read8Bit(); SetFlags(false); break;
+            case 0xF3:
+                IME = false;
+                _pendingIME = false;
+                break;
+            //case 0xF4: does not exist
+            case 0xF5:  StackPush(AF);break;
+            case 0xF6:  A|=Read8Bit();SetFlags(false);break;
+            case 0xF7:  StackPush(PC);PC=0x0030;break;
+            case 0xF8:
+                sval=Read8SignedBit();
+                HL=(ushort)(SP+sval);
+                SetFlag(Z_FLAG,false);
+                SetFlag(N_FLAG,false);
+                SetFlag(H_FLAG,(SP&0x0F)+(sval&0x0F)>0x0F);
+                SetFlag(C_FLAG,(SP&0xFF)+(sval&0xFF)>0xFF);
+                break;
             case 0xF9: SP = HL; break;
             case 0xFA:
                 A = _bus.Read(Read16Bit());
                 break;
+            case 0xFB:  _pendingIME=true;break;
             case 0xFE:
                 val = Read8Bit();
                 SetFlag(Z_FLAG, A == val);
@@ -433,6 +534,7 @@ public class CPU
                 SetFlag(H_FLAG, (A & 0x0F) < (val & 0x0F));
                 SetFlag(C_FLAG, A < val);
                 break;
+            case 0xFF:  StackPush(PC);PC=0x0038;break;
 
             default:
                 Console.WriteLine("Unknow Opcode");
@@ -485,7 +587,7 @@ public class CPU
     {
         int c=GetFlag(C_FLAG)?1:0;
         int res=A+val+c;
-        SetFlag(H_FLAG,(A&0x0F)+(val&0x0F)+val>0x0F);
+        SetFlag(H_FLAG,(A&0x0F)+(val&0x0F)+c>0x0F);
         SetFlag(C_FLAG,res>0xFF);
         A=(byte)res;
         SetFlag(Z_FLAG,A==0);
@@ -504,7 +606,7 @@ public class CPU
         int c=GetFlag(C_FLAG)?1:0;
         int res=A-val-c;
         SetFlag(H_FLAG,(A&0x0F)<((val&0x0F)+c));
-        SetFlag(C_FLAG,A<(val+c));
+        SetFlag(C_FLAG,(int)A-(val+c)<0);
         A=(byte)res;
         SetFlag(Z_FLAG,A==0);
         SetFlag(N_FLAG,true);
@@ -547,6 +649,23 @@ public class CPU
         SetFlag(N_FLAG,false);
         SetFlag(H_FLAG,isAnd);
         SetFlag(C_FLAG,false);
+    }
+
+    public void Step()
+    {
+
+        if (Halted)
+        {
+            return; 
+        }
+        bool imeWasPending = _pendingIME;
+        Fetch();
+
+        if (imeWasPending)
+        {
+            IME = true;
+            _pendingIME = false;
+        }
     }
 }
 
