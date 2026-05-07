@@ -542,20 +542,103 @@ public class CPU
         }
     }
 
-    public void ExecuteCB(byte CBOC)
+    public void ExecuteCB(byte cbOpcode)
     {
-        switch (CBOC)
+        int regIndex = cbOpcode & 0x07;
+        byte val = GetRegisterByIndex(regIndex);
+        int bit = (cbOpcode >> 3) & 0x07;
+        if (cbOpcode < 0x40) 
         {
-            case 0x7C:
-                SetFlag(Z_FLAG, (H & 0x80) == 0);
-                SetFlag(N_FLAG, false);
-                SetFlag(H_FLAG, true);
-                break;
+            val = ExecuteRotationShift(cbOpcode >> 3, val);
+        }
+        else if (cbOpcode < 0x80) 
+        {
+            BitTest(bit, val);
+            return;
+        }
+        else if (cbOpcode < 0xC0) 
+        {
+            val = (byte)(val & ~(1 << bit));
+        }
+        else 
+        {
+            val = (byte)(val | (1 << bit));
+        }
+        SetRegisterByIndex(regIndex, val);
+    }
 
-            default:
-                Console.WriteLine("Unknown Opcode");
+    private byte GetRegisterByIndex(int index)
+    {
+        return index switch
+        {
+            0=>B,1=>C,2=>D,3=>E,4=>H,5=>L,6=>_bus.Read(HL),7=>A,_=>0
+        };
+    }
+
+    private void SetRegisterByIndex(int index, byte val)
+    {
+        switch (index) {
+            case 0: B = val; break;
+            case 1: C = val; break;
+            case 2: D = val; break;
+            case 3: E = val; break;
+            case 4: H = val; break;
+            case 5: L = val; break;
+            case 6: _bus.Write(HL, val); break;
+            case 7: A = val; break;
+        }
+    }
+    private void BitTest(int bit,byte val)
+    {
+        SetFlag(Z_FLAG, (val & (1 << bit)) == 0);
+        SetFlag(N_FLAG, false);
+        SetFlag(H_FLAG, true);
+    }
+    private byte ExecuteRotationShift(int type, byte val)
+    {
+        int c = GetFlag(C_FLAG) ? 1 : 0;
+        byte result = 0;
+
+        switch (type)
+        {
+            case 0:
+                SetFlag(C_FLAG, (val & 0x80) != 0);
+                result = (byte)((val << 1) | (val >> 7));
+                break;
+            case 1:
+                SetFlag(C_FLAG, (val & 0x01) != 0);
+                result = (byte)((val >> 1) | (val << 7));
+                break;
+            case 2:
+                SetFlag(C_FLAG, (val & 0x80) != 0);
+                result = (byte)((val << 1) | c);
+                break;
+            case 3:
+                SetFlag(C_FLAG, (val & 0x01) != 0);
+                result = (byte)((val >> 1) | (c << 7));
+                break;
+            case 4:
+                SetFlag(C_FLAG, (val & 0x80) != 0);
+                result = (byte)(val << 1);
+                break;
+            case 5:
+                SetFlag(C_FLAG, (val & 0x01) != 0);
+                result = (byte)((val >> 1) | (val & 0x80));
+                break;
+            case 6:
+                SetFlag(C_FLAG, false);
+                result = (byte)((val << 4) | (val >> 4));
+                break;
+            case 7:
+                SetFlag(C_FLAG, (val & 0x01) != 0);
+                result = (byte)(val >> 1);
                 break;
         }
+
+        SetFlag(Z_FLAG, result == 0);
+        SetFlag(N_FLAG, false);
+        SetFlag(H_FLAG, false);
+        return result;
     }
 
     private byte Read8Bit()
@@ -694,18 +777,14 @@ public class CPU
         byte ifReg = _bus.Read(0xFF0F);
         ifReg &= (byte)~(1 << interruptBit);
         _bus.Write(0xFF0F, ifReg);
-
-        // Push the current PC to the stack
         StackPush(PC);
-
-        // Jump to the specific Interrupt Vector
         switch (interruptBit)
         {
-            case 0: PC = 0x0040; break; // V-Blank (Highest Priority)
-            case 1: PC = 0x0048; break; // LCD STAT
-            case 2: PC = 0x0050; break; // Timer
-            case 3: PC = 0x0058; break; // Serial
-            case 4: PC = 0x0060; break; // Joypad
+            case 0: PC = 0x0040; break;
+            case 1: PC = 0x0048; break;
+            case 2: PC = 0x0050; break;
+            case 3: PC = 0x0058; break;
+            case 4: PC = 0x0060; break;
         }
     }
 }
