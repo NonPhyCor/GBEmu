@@ -5,6 +5,7 @@ public class CPU
     public byte A,B,C,D,E,H,L;
     public byte F;
     public ushort PC,SP;
+    private bool test;
     //F Flags
     private const byte Z_FLAG=0x80;
     private const byte N_FLAG=0x40;
