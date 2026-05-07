@@ -667,6 +667,45 @@ public class CPU
             _pendingIME = false;
         }
     }
-}
 
-//i was testing
+    public void CheckInterrupt()
+    {
+        byte requested=_bus.Read(0xFF0F);
+        byte enabled=_bus.Read(0xFFFF);
+
+        if((requested&enabled)!=0)
+        {
+            Halted=false;
+            if(!IME)    return;
+            for (int i = 0; i < 5; i++)
+            {
+                if (((requested&enabled)&(1<<i))!=0)
+                {
+                    ServiceInterrupt(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void ServiceInterrupt(int interruptBit)
+    {
+        IME = false;
+        byte ifReg = _bus.Read(0xFF0F);
+        ifReg &= (byte)~(1 << interruptBit);
+        _bus.Write(0xFF0F, ifReg);
+
+        // Push the current PC to the stack
+        StackPush(PC);
+
+        // Jump to the specific Interrupt Vector
+        switch (interruptBit)
+        {
+            case 0: PC = 0x0040; break; // V-Blank (Highest Priority)
+            case 1: PC = 0x0048; break; // LCD STAT
+            case 2: PC = 0x0050; break; // Timer
+            case 3: PC = 0x0058; break; // Serial
+            case 4: PC = 0x0060; break; // Joypad
+        }
+    }
+}

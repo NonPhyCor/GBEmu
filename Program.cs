@@ -1,60 +1,82 @@
 ﻿using System;
+using System.IO;
 using System.Threading;
 
 class Program
 {
     static void Main(string[] args)
     {
+        string romPath = "Pokemon.gb";
+        
+        if (!File.Exists(romPath))
+        {
+            Console.WriteLine($"Error: {romPath} not found!");
+            return;
+        }
+
+        // 1. Initialize Hardware
         Bus bus = new Bus();
-        CPU cpu = new CPU(bus);
-        byte[] romData = File.ReadAllBytes("Tetris.gb");
+        byte[] romData = File.ReadAllBytes(romPath);
         bus.LoadCartridge(romData);
+        
+        CPU cpu = new CPU(bus);
 
         Console.WriteLine("CPU Initialized. Starting execution...");
         Console.WriteLine("-------------------------------------------------------------------");
-        Console.WriteLine("PC     | OP | Instruction      | A  | BC   | DE   | HL   | SP   | F ");
+        Console.WriteLine("PC     | OP | A  | BC   | DE   | HL   | SP   | Flags | Status");
         Console.WriteLine("-------------------------------------------------------------------");
 
         bool running = true;
-        while (running)
+        
+        // Use a try-catch to catch any out-of-bounds memory access during early testing
+        try 
         {
-            // 1. Log the state BEFORE the instruction executes
-            ushort currentPC = cpu.PC;
-            byte opcode = bus.Read(currentPC);
-            string mnemonic = GetMnemonic(opcode);
+            while (running)
+            {
+                // 2. Handle Interrupts
+                // This must be called every loop to check the IF and IE registers
+                cpu.CheckInterrupt();
 
-            Console.Write($"{currentPC:X4}   | {opcode:X2} | {mnemonic,-16} | ");
-            Console.Write($"{cpu.A:X2} | {cpu.BC:X4} | {cpu.DE:X4} | {cpu.HL:X4} | {cpu.SP:X4} | ");
-            Console.WriteLine($"{(cpu.GetFlag(0x80)?'Z':'-')}{(cpu.GetFlag(0x40)?'N':'-')}{(cpu.GetFlag(0x20)?'H':'-')}{(cpu.GetFlag(0x10)?'C':'-')}");
+                // 3. Log state BEFORE execution
+                ushort currentPC = cpu.PC;
+                byte opcode = bus.Read(currentPC);
 
-            // 2. Execute the instruction
-            cpu.Step();
+                // We only print if the CPU isn't Halted, otherwise it would spam the console
+                if (!cpu.Halted)
+                {
+                    Console.Write($"{currentPC:X4}   | {opcode:X2} | ");
+                    Console.Write($"{cpu.A:X2} | {cpu.BC:X4} | {cpu.DE:X4} | {cpu.HL:X4} | {cpu.SP:X4} | ");
+                    Console.Write($"{(cpu.GetFlag(0x80) ? 'Z' : '-')}{(cpu.GetFlag(0x40) ? 'N' : '-')}{(cpu.GetFlag(0x20) ? 'H' : '-')}{(cpu.GetFlag(0x10) ? 'C' : '-')}");
+                    Console.WriteLine(" | Running");
+                }
+                else
+                {
+                    // If halted, just show a status line occasionally or a simple message
+                    // Console.WriteLine($"{currentPC:X4}   | -- | CPU HALTED - Waiting for Interrupt");
+                }
 
-            // 3. Handle Interrupts (if any)
-            // HandleInterrupts(cpu, bus);
+                // 4. Step the CPU logic
+                // This handles the Fetch, Execute, and the EI-delay
+                cpu.Step();
 
-            // 4. Slow down so we can read the output
-            Thread.Sleep(100); 
+                // 5. Control Speed
+                // Real Pokemon startup does thousands of instructions; 100ms is slow for debugging
+                // Change this to 1 or 0 once you know the CPU is moving correctly
+                Thread.Sleep(1); 
 
-            // Prevent infinite wrap-around stop for this test
-            if (cpu.PC == 0x0000) {
-                Console.WriteLine("Reached 0x0000. Stopping.");
-                running = false;
+                // 6. Safety Break
+                if (currentPC == 0x0000 && opcode == 0x00) 
+                {
+                    Console.WriteLine("-------------------------------------------------------------------");
+                    Console.WriteLine("Reached empty memory (0x0000). Stopping.");
+                    running = false;
+                }
             }
         }
-    }
-
-    // A very simple helper to name the opcodes we just injected
-    static string GetMnemonic(byte opcode)
-    {
-        return opcode switch
+        catch (Exception ex)
         {
-            0x00 => "NOP",
-            0x06 => "LD B, d8",
-            0x3E => "LD A, d8",
-            0x80 => "ADD A, B",
-            0xC3 => "JP a16",
-            _ => $"UNK ({opcode:X2})"
-        };
+            Console.WriteLine($"\nCPU CRASHED at PC: {cpu.PC:X4}");
+            Console.WriteLine($"Error: {ex.Message}");
+        }
     }
 }
