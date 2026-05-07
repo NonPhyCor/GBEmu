@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GBEmu")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1cd7f011dbfb56fc37efd82949b6d539f20c334d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3068d34bb03e83ba59a7f81848c6619408e7bb58")]
 [assembly: System.Reflection.AssemblyProductAttribute("GBEmu")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GBEmu")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
