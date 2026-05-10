@@ -31,6 +31,7 @@ class Program
         // Use a try-catch to catch any out-of-bounds memory access during early testing
         try 
         {
+            int t;
             while (running)
             {
                 // 2. Handle Interrupts
@@ -57,7 +58,9 @@ class Program
 
                 // 4. Step the CPU logic
                 // This handles the Fetch, Execute, and the EI-delay
-                cpu.Step();
+                t=cpu.Step();
+                bus.Tick(t);
+
 
                 // 5. Control Speed
                 // Real Pokemon startup does thousands of instructions; 100ms is slow for debugging
