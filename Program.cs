@@ -1,13 +1,13 @@
 ﻿using System;
 using System.IO;
-using System.Threading;
+using Raylib_cs; // Import the new Raylib package
 
 class Program
 {
     static void Main(string[] args)
     {
-        // Switching to Tetris for this test as per your updated path
-        string romPath = "Pokemon.gb";
+        // Load your simple 32KB test game
+        string romPath = "Tetris.gb";
         
         if (!File.Exists(romPath))
         {
@@ -15,69 +15,56 @@ class Program
             return;
         }
 
-        // 1. Initialize Hardware
         Bus bus = new Bus();
+        bus.JoypadController._bus = bus;
         byte[] romData = File.ReadAllBytes(romPath);
         bus.LoadCartridge(romData);
-        
         CPU cpu = new CPU(bus);
 
-        Console.WriteLine("CPU Initialized. Starting execution...");
-        Console.WriteLine("-------------------------------------------------------------------");
-        Console.WriteLine("PC     | OP | A  | BC   | DE   | HL   | SP   | Flags | Status");
-        Console.WriteLine("-------------------------------------------------------------------");
+        // Initialize a window (160x144 is the native Game Boy resolution)
+        // We multiply it by 4 (640x576) so it's large enough to see easily on your screen
+        Raylib.InitWindow(640, 576, "Game Boy Emulator");
+        Raylib.SetTargetFPS(60);
 
-        bool running = true;
-        long instructionCount = 0; // Track total instructions to filter logs
-        
-        try 
+        Console.WriteLine("Window opened. Listening for keyboard inputs...");
+
+        // This loop runs continuously until you close the window or hit Escape
+        while (!Raylib.WindowShouldClose())
         {
-            while (running)
+            // --- 1. CAPTURE INPUTS ---
+            // Check your computer keys and feed them straight to your Joypad engine
+            bus.JoypadController.UpdateKey(GameboyKey.Up,     Raylib.IsKeyDown(KeyboardKey.W));
+            bus.JoypadController.UpdateKey(GameboyKey.Down,   Raylib.IsKeyDown(KeyboardKey.S));
+            bus.JoypadController.UpdateKey(GameboyKey.Left,   Raylib.IsKeyDown(KeyboardKey.A));
+            bus.JoypadController.UpdateKey(GameboyKey.Right,  Raylib.IsKeyDown(KeyboardKey.D));
+            
+            bus.JoypadController.UpdateKey(GameboyKey.A,      Raylib.IsKeyDown(KeyboardKey.J));      // Z key maps to A
+            bus.JoypadController.UpdateKey(GameboyKey.B,      Raylib.IsKeyDown(KeyboardKey.K));      // X key maps to B
+            bus.JoypadController.UpdateKey(GameboyKey.Start,  Raylib.IsKeyDown(KeyboardKey.Enter));  // Enter maps to Start
+            bus.JoypadController.UpdateKey(GameboyKey.Select, Raylib.IsKeyDown(KeyboardKey.Space));  // Space maps to Select
+
+            // --- 2. EXECUTE EMULATOR CYCLE ---
+            // For a simple target, we execute roughly enough cycles to match one frame of video
+            // A real Game Boy runs ~70224 cycles per frame at 60Hz
+            int cyclesThisFrame = 0;
+            while (cyclesThisFrame < 70224)
             {
-                // 2. Handle Interrupts
                 cpu.CheckInterrupt();
-
-                // 3. Monitor for V-Blank Interrupt Vector
-                if (cpu.PC == 0x0040)
-                {
-                    Console.WriteLine("\n*** V-BLANK INTERRUPT TRIGGERED! PC is at 0040 ***");
-                    Console.WriteLine("Press Enter to continue execution...");
-                    Console.ReadLine(); 
-                }
-
-                // 4. State Logging with Filter
-                // Printing every line is slow. We log every 10,000 instructions
-                // or if we are at the interrupt vector to keep the emulator fast.
-                if (!cpu.Halted && (instructionCount % 10000 == 0 || cpu.PC == 0x0040))
-                {
-                    ushort currentPC = cpu.PC;
-                    byte opcode = bus.Read(currentPC);
-
-                    Console.Write($"{currentPC:X4}   | {opcode:X2} | ");
-                    Console.Write($"{cpu.A:X2} | {cpu.BC:X4} | {cpu.DE:X4} | {cpu.HL:X4} | {cpu.SP:X4} | ");
-                    Console.Write($"{(cpu.GetFlag(0x80) ? 'Z' : '-')}{(cpu.GetFlag(0x40) ? 'N' : '-')}{(cpu.GetFlag(0x20) ? 'H' : '-')}{(cpu.GetFlag(0x10) ? 'C' : '-')}");
-                    Console.WriteLine($" | Count: {instructionCount}");
-                }
-
-                // 5. Step and Tick
-                int t = cpu.Step();
-                bus.Tick(t);
-                instructionCount++;
-
-                // 6. Safety Break
-                if (cpu.PC == 0x0000 && bus.Read(cpu.PC) == 0x00) 
-                {
-                    Console.WriteLine("-------------------------------------------------------------------");
-                    Console.WriteLine("Reached empty memory (0x0000). Stopping.");
-                    running = false;
-                }
+                int cycles = cpu.Step();
+                bus.Tick(cycles);
+                cyclesThisFrame += cycles;
             }
+
+            // --- 3. RENDER BLANK WINDOW FRAME ---
+            // For now, we clear the screen with a classic Game Boy green background color.
+            // We'll fill this with actual pixels when we build the PPU!
+            Raylib.BeginDrawing();
+            Raylib.ClearBackground(new Color(155, 188, 15, 255)); // Classic OG Game Boy Green
+            Raylib.EndDrawing();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\nCPU CRASHED at PC: {cpu.PC:X4}");
-            Console.WriteLine($"Error: {ex.Message}");
-            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
-        }
+
+        // Clean up memory and close the window when exiting
+        Raylib.CloseWindow();
+        Console.WriteLine("Emulator closed gracefully.");
     }
 }
