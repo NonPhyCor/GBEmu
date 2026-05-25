@@ -38,7 +38,6 @@ public class Bus
         if(address>=0xC000 && address<=0xDFFF)  return _wram[address-0xC000];
         if(address>=0xE000 && address<=0xFDFF)  return _wram[address-0xE000];
         if(address>=0xFE00 && address<=0xFE9F)  return _oam[address-0xFE00];
-        if(address==0xFF00) return (byte)(_io[0x00] | 0x0F);
         if(address==0xFF00) return JoypadController.Read();
         if(address>=0xFF80 && address<=0xFFFE)  return _hram[address-0xFF80];
         if(address==0xFFFF) return _ie;

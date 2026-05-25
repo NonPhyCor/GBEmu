@@ -8,7 +8,7 @@ public class Joypad
     private byte _select=0x30;
     public Joypad(Bus bus)
     {
-        Bus _bus=bus;
+        _bus=bus;
     }
     public byte Read()
     {
