@@ -38,6 +38,20 @@ public class APU
     private bool Channel3DacEnable=>(_apuRegisters[0x1A-0x10]&0x80)!=0;
     private int Channel3VolumeCode=>((_apuRegisters[0x1C-0x10]>>5)&0x03);
 
+    private int _channel4Timer=0;
+    private int _channel4Volume=0;
+    private int _channel4EnvTimer=0;
+    private int _channel4EnvPace=0;
+    private bool _channel4EnvIncrease=false;
+    private bool _channel4Enabled=false;
+    private ushort _lfsr=0x7FFF;
+    private int[] _divisorTable={8,16,32,48,64,80,96,112};
+    private int Channel4FrequencyTimer=>(_divisorTable[_apuRegisters[0x22-0x10]&0x07]<<((_apuRegisters[0x22-0x10]>>4)&0x0F));
+
+    private int _channel1LengthTimer=0;
+    private int _channel2LengthTimer=0;
+    private int _channel3LengthTimer=0;
+    private int _channel4LengthTimer=0;
     private static readonly int[,] DutyCycles =
     {
         { 0, 0, 0, 0, 0, 0, 0, 1 }, 
@@ -54,6 +68,16 @@ public class APU
 
     public byte Read(ushort address)
     {
+        if(address==0xFF26)
+        {
+            byte status=0x00;
+            if(MasterSoundEnable)   status|=0x80;
+            if(_channel1Enabled)    status|=0x01;
+            if(_channel2Enabled)    status|=0x02;
+            if(_channel3Enabled)    status|=0x04;
+            if(_channel4Enabled)    status|=0x08;
+            return status;
+        }
         if(address>=0xFF10 && address<=0xFF2F)
             return _apuRegisters[address-0xFF10];
         else if(address>=0xFF30 && address<=0xFF3F)
@@ -66,8 +90,14 @@ public class APU
         {
             MasterSoundEnable=(data&0x80)!=0;
             if(!MasterSoundEnable)
+            {
                 Array.Clear(_apuRegisters,0,_apuRegisters.Length);
-            _apuRegisters[0x16]=(byte)(data&0x80);
+                _channel1Enabled=false;
+                _channel2Enabled=false;
+                _channel3Enabled=false;
+                _channel4Enabled=false;
+            }
+            _apuRegisters[0x26-0x10]=(byte)(data&0x80);
             return;
         }
         if(!MasterSoundEnable && address<0xFF30)
@@ -94,6 +124,7 @@ public class APU
                     else    _channel1SweepTimer=_channel1SweepPace;
                     if(step!=0)
                         if(CalculateNewFreq()>2047)  _channel1Enabled=false;
+                    if(_channel1LengthTimer==0) _channel1LengthTimer=64;
                 }
             }
             if(address==0xFF19)
@@ -107,6 +138,7 @@ public class APU
                     _channel2EnvIncrease=(_apuRegisters[0x17-0x10]&0x08)!=0;
                     if(_channel2EnvPace==0) _channel2EnvTimer=8;
                     else    _channel2EnvTimer=_channel2EnvPace;
+                    if(_channel2LengthTimer==0) _channel2LengthTimer=64;
                 }
             }
             if(address==0xFF1E)
@@ -117,8 +149,32 @@ public class APU
                         _channel3Enabled=true;
                     _channel3Timer=(2048-Channel3Frequency)*2;
                     _channel3Position=0;
+                    if(_channel3LengthTimer==0) _channel3LengthTimer=256;
                 }
             }
+            if(address==0xFF23)
+            {
+                if((data&0x80)!=0)
+                {
+                    _channel4Enabled=true;
+                    _lfsr=0x7FFF;
+                    _channel4Timer=Channel4FrequencyTimer;
+                    _channel4Volume=(_apuRegisters[0x21-0x10]>>4)&0x0F;
+                    _channel4EnvPace=_apuRegisters[0x21-0x10]&0x07;
+                    _channel4EnvIncrease=(_apuRegisters[0x21-0x10]&0x08)!=0;
+                    if(_channel4EnvPace==0) _channel4EnvTimer=8;
+                    else    _channel4EnvTimer=_channel4EnvPace;
+                    if(_channel4LengthTimer==0) _channel4LengthTimer=64;
+                }
+            }
+            if(address==0xFF11)
+                _channel1LengthTimer=64-(data&0x3F);
+            if(address==0xFF16)
+                _channel2LengthTimer=64-(data&0x3F);
+            if(address==0xFF20)
+                _channel4LengthTimer=64-(data&0x3F);
+            if(address==0xFF1B)
+                _channel3LengthTimer=256-data;
         }
         else if(address>=0xFF30 && address<=0xFF3F)
             _waveRAM[address-0xFF30]=data;
@@ -157,6 +213,12 @@ public class APU
             case 3:return sample>>2;
             default:return 0;
         }
+    }
+    public int GetChannel4Sample()
+    {
+        if(_channel4Enabled)
+            return ((~_lfsr)&0x01)*_channel4Volume;
+        return 0;
     }
     public int CalculateNewFreq()
     {
@@ -207,6 +269,23 @@ public class APU
                 _channel3Position=(_channel3Position+1)%32;
             }
         }
+        if(_channel4Enabled)
+        {
+            _channel4Timer-=cycles;
+            if(_channel4Timer<=0)
+            {
+                _channel4Timer+=Channel4FrequencyTimer;
+                int xorResult=(_lfsr&0x01)^((_lfsr>>1)&0x01);
+                _lfsr=(ushort)(_lfsr>>1);
+                _lfsr=(ushort)(_lfsr|(xorResult<<14));
+                bool is7bitMode=(_apuRegisters[0x22-0x10]&0x08)!=0;
+                if(is7bitMode)
+                {
+                    _lfsr=(ushort)(_lfsr&~(1<<6));
+                    _lfsr=(ushort)(_lfsr|(xorResult<<6));
+                }
+            }
+        }
         _frameSequenceTimer-=cycles;
         if(_frameSequenceTimer<=0)
         {
@@ -234,6 +313,16 @@ public class APU
                         else if(_channel2EnvIncrease==false && _channel2Volume>0)   _channel2Volume-=1;
                     }
                 }
+                if(_channel4EnvPace!=0)
+                {
+                    _channel4EnvTimer-=1;
+                    if(_channel4EnvTimer<=0)
+                    {
+                        _channel4EnvTimer=_channel4EnvPace;
+                        if(_channel4EnvIncrease && _channel4Volume<15)  _channel4Volume+=1;
+                        else if(!_channel4EnvIncrease && _channel4Volume>0)  _channel4Volume-=1;
+                    }
+                }
             }
             if(_frameSequencerStep==2||_frameSequencerStep==6)
             {
@@ -257,6 +346,33 @@ public class APU
                             }
                         }
                     }
+                }
+            }
+            if(_frameSequencerStep%2==0)
+            {
+                bool ch1LenghtEnable=(_apuRegisters[0x14-0x10]&0x40)!=0;
+                if(ch1LenghtEnable && _channel1LengthTimer>0)
+                {
+                    _channel1LengthTimer-=1;
+                    if(_channel1LengthTimer==0) _channel1Enabled=false;
+                }
+                bool ch2LenghtEnable=(_apuRegisters[0x19-0x10]&0x40)!=0;
+                if(ch2LenghtEnable && _channel2LengthTimer>0)
+                {
+                    _channel2LengthTimer-=1;
+                    if(_channel2LengthTimer==0) _channel2Enabled=false;
+                }
+                bool ch3LenghtEnable=(_apuRegisters[0x1E-0x10]&0x40)!=0;
+                if(ch3LenghtEnable && _channel3LengthTimer>0)
+                {
+                    _channel3LengthTimer-=1;
+                    if(_channel3LengthTimer==0) _channel3Enabled=false;
+                }
+                bool ch4LenghtEnable=(_apuRegisters[0x23-0x10]&0x40)!=0;
+                if(ch4LenghtEnable && _channel4LengthTimer>0)
+                {
+                    _channel4LengthTimer-=1;
+                    if(_channel4LengthTimer==0) _channel4Enabled=false;
                 }
             }
         }
