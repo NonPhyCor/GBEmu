@@ -15,6 +15,21 @@ public class APU
     private int _channel1EnvTimer=0;
     private int _channel1EnvPace=0;
     private bool _channel1EnvIncrease=false;
+    private int _channel1ShadowFreq=0;
+    private int _channel1SweepTimer=0;
+    private int _channel1SweepPace=0;
+    private bool _channel1SweepEnabled=false;
+
+    private bool _channel2Enabled=false;
+    private int _channel2Timer=0;
+    private int _channel2DutyIndex=0;
+    private int _channel2Volume=0;
+    private int _channel2EnvTimer=0;
+    private int _channel2EnvPace=0;
+    private bool _channel2EnvIncrease=false;
+    private int Channel2DutyPattern=>(_apuRegisters[0x16-0x10]>>6)&0x03;
+    private int Channel2Frequency=>(_apuRegisters[0x18-0x10]|((_apuRegisters[0x19-0x10]&0x07)<<8));
+
     private static readonly int[,] DutyCycles =
     {
         { 0, 0, 0, 0, 0, 0, 0, 1 }, 
@@ -63,6 +78,27 @@ public class APU
                     _channel1EnvIncrease=(_apuRegisters[0x12-0x10]&0x08)!=0;
                     if(_channel1EnvPace==0) _channel1EnvTimer=8;
                     else    _channel1EnvTimer=_channel1EnvPace;
+                    _channel1ShadowFreq=Channel1Frequency;
+                    _channel1SweepPace=(_apuRegisters[0x10-0x10]>>4)&0x07;
+                    int step=_apuRegisters[0x10-0x10]&0x07;
+                    _channel1SweepEnabled=(_channel1SweepPace!=0)||(step!=0);
+                    if(_channel1SweepPace==0)   _channel1SweepTimer=8;
+                    else    _channel1SweepTimer=_channel1SweepPace;
+                    if(step!=0)
+                        if(CalculateNewFreq()>2047)  _channel1Enabled=false;
+                }
+            }
+            if(address==0xFF19)
+            {
+                if((data&0x80)!=0)
+                {
+                    _channel2Enabled=true;
+                    _channel2Timer=(2048-Channel2Frequency)*4;
+                    _channel2Volume=(_apuRegisters[0x17-0x10]>>4)&0x0F;
+                    _channel2EnvPace=_apuRegisters[0x17-0x10]&0x07;
+                    _channel2EnvIncrease=(_apuRegisters[0x17-0x10]&0x08)!=0;
+                    if(_channel2EnvPace==0) _channel2EnvTimer=8;
+                    else    _channel2EnvTimer=_channel2EnvPace;
                 }
             }
         }
@@ -70,13 +106,39 @@ public class APU
             _waveRAM[address-0xFF30]=data;
 
     }
-    public int GetChannelSample()
+    public int GetChannel1Sample()
     {
         if(!_channel1Enabled)
             return 0;
         int pattern=Channel1DutyPattern;
         int stepValue=DutyCycles[pattern,_channel1DutyIndex];
         return stepValue*_channel1Volume;
+    }
+    public int GetChannel2Sample()
+    {
+        if(!_channel2Enabled)
+            return 0;
+        int pattern=Channel2DutyPattern;
+        int stepValue=DutyCycles[pattern,_channel2DutyIndex];
+        return stepValue*_channel2Volume;
+    }
+    public int CalculateNewFreq()
+    {
+        int step=_apuRegisters[0x10-0x10]&0x07;
+        bool isDecrease=(_apuRegisters[0x10-0x10]&0x08)!=0;
+        int shifted=_channel1ShadowFreq>>step;
+        int newFreq;
+        if(isDecrease)
+            newFreq=_channel1ShadowFreq-shifted;
+        else
+            newFreq=_channel1ShadowFreq+shifted;
+        if(newFreq>2047)
+        {
+            _channel1Enabled=false;
+            return 2048;
+        }
+        else
+            return newFreq;
     }
     public void Tick(int cycles)
     {
@@ -89,6 +151,15 @@ public class APU
             {
                 _channel1Timer+=(2048-Channel1Frequency)*4;
                 _channel1DutyIndex=(_channel1DutyIndex+1)%8;
+            }
+        }
+        if(_channel2Enabled)
+        {
+            _channel2Timer-=cycles;
+            if(_channel2Timer<=0)
+            {
+                _channel2Timer+=(2048-Channel2Frequency)*4;
+                _channel2DutyIndex=(_channel2DutyIndex+1)%8;
             }
         }
         _frameSequenceTimer-=cycles;
@@ -106,6 +177,40 @@ public class APU
                         _channel1EnvTimer=_channel1EnvPace;
                         if(_channel1EnvIncrease==true && _channel1Volume<15)    _channel1Volume+=1;
                         else if(_channel1EnvIncrease==false && _channel1Volume>0)   _channel1Volume-=1;
+                    }
+                }
+                if(_channel2EnvPace!=0)
+                {
+                    _channel2EnvTimer-=1;
+                    if(_channel2EnvTimer<=0)
+                    {
+                        _channel2EnvTimer=_channel2EnvPace;
+                        if(_channel2EnvIncrease==true && _channel2Volume<15)    _channel2Volume+=1;
+                        else if(_channel2EnvIncrease==false && _channel2Volume>0)   _channel2Volume-=1;
+                    }
+                }
+            }
+            if(_frameSequencerStep==2||_frameSequencerStep==6)
+            {
+                if(_channel1SweepEnabled)
+                {
+                    _channel1SweepTimer-=1;
+                    if(_channel1SweepTimer<=0)
+                    {
+                        if(_channel1SweepPace==0)   _channel1SweepTimer=8;
+                        else    _channel1SweepTimer=_channel1SweepPace;
+                        if(_channel1SweepPace!=0 && _channel1SweepEnabled)
+                        {
+                            int newFreq=CalculateNewFreq();
+                            int step=_apuRegisters[0x10-0x10]&0x07;
+                            if(newFreq<=2047&&step!=0)
+                            {
+                                _channel1ShadowFreq=newFreq;
+                                _apuRegisters[0x13-0x10]=(byte)(newFreq&0xFF);
+                                _apuRegisters[0x14-0x10]=(byte)((_apuRegisters[0x14-0x10]&0xF8)|((newFreq>>8)&0x07));
+                                if(CalculateNewFreq()>2047) _channel1Enabled=false;
+                            }
+                        }
                     }
                 }
             }
