@@ -13,10 +13,12 @@ public class Bus
     private int DIV=0;
     private int ScanLines=0;
     private int timerCounter=0;
+    public APU APUController;
     public Joypad JoypadController;
     public Bus()
     {
         JoypadController = new Joypad(this);
+        APUController = new APU(this);
     }
     public void LoadCartridge(byte[] RomData)
     {
@@ -39,6 +41,8 @@ public class Bus
         if(address>=0xE000 && address<=0xFDFF)  return _wram[address-0xE000];
         if(address>=0xFE00 && address<=0xFE9F)  return _oam[address-0xFE00];
         if(address==0xFF00) return JoypadController.Read();
+        if(address>=0xFF10 && address<=0xFF3F)  return APUController.Read(address);
+        if(address >= 0xFF00 && address <= 0xFF7F) return _io[address - 0xFF00];
         if(address>=0xFF80 && address<=0xFFFE)  return _hram[address-0xFF80];
         if(address==0xFFFF) return _ie;
         return 0xFF;
@@ -66,6 +70,11 @@ public class Bus
         if(address>=0xC000 && address<=0xDFFF)  _wram[address-0xC000]=data;
         if(address>=0xE000 && address<=0xFDFF)  _wram[address-0xE000]=data;
         if(address>=0xFE00 && address<=0xFE9F)  _oam[address-0xFE00]=data;
+        if(address>=0xFF10 && address<=0xFF3F)
+        {
+            APUController.Write(address,data);
+            return;
+        }
         if(address==0xFF46)
         {
             _io[46]=data;
@@ -123,5 +132,6 @@ public class Bus
                 }
             }
         }
+        APUController.Tick(t);
     }
 }
