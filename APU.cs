@@ -52,6 +52,21 @@ public class APU
     private int _channel2LengthTimer=0;
     private int _channel3LengthTimer=0;
     private int _channel4LengthTimer=0;
+
+    private int L=>((_apuRegisters[0x24-0x10]>>4)&0x07);
+    private int R=>(_apuRegisters[0x24-0x10]&0x07);
+    private bool Lch1=>((_apuRegisters[0x25-0x10]&0x10)!=0);
+    private bool Lch2=>((_apuRegisters[0x25-0x10]&0x20)!=0);
+    private bool Lch3=>((_apuRegisters[0x25-0x10]&0x40)!=0);
+    private bool Lch4=>((_apuRegisters[0x25-0x10]&0x80)!=0);
+    private bool Rch1=>((_apuRegisters[0x25-0x10]&0x01)!=0);
+    private bool Rch2=>((_apuRegisters[0x25-0x10]&0x02)!=0);
+    private bool Rch3=>((_apuRegisters[0x25-0x10]&0x04)!=0);
+    private bool Rch4=>((_apuRegisters[0x25-0x10]&0x08)!=0);
+
+    private double _sampleTimer = 0;
+    private const double CyclesPerSample=4194304.0 / 44100.0;
+    public System.Collections.Generic.Queue<float> AudioBuffer { get; private set; } = new();
     private static readonly int[,] DutyCycles =
     {
         { 0, 0, 0, 0, 0, 0, 0, 1 }, 
@@ -63,7 +78,7 @@ public class APU
     private int _frameSequencerStep=0;
     public APU(Bus bus)
     {
-        _bus=bus;
+        _bus = bus;
     }
 
     public byte Read(ushort address)
@@ -220,6 +235,29 @@ public class APU
             return ((~_lfsr)&0x01)*_channel4Volume;
         return 0;
     }
+    public (float,float) MixSamples()
+    {
+        if (!_channel1Enabled && !_channel2Enabled && !_channel3Enabled && !_channel4Enabled)
+            return (0.0f, 0.0f);
+        int c1=GetChannel1Sample();
+        int c2=GetChannel2Sample();
+        int c3=GetChannel3Sample();
+        int c4=GetChannel4Sample();
+        int leftsum=0,rightsum=0;
+        if(Lch1)    leftsum+=c1;
+        if(Lch2)    leftsum+=c2;
+        if(Lch3)    leftsum+=c3;
+        if(Lch4)    leftsum+=c4;
+        if(Rch1)    rightsum+=c1;
+        if(Rch2)    rightsum+=c2;
+        if(Rch3)    rightsum+=c3;
+        if(Rch4)    rightsum+=c4;
+        leftsum*=(L+1);
+        rightsum*=(R+1);
+        float l=(leftsum/120.0f)-1.0f;
+        float r=(rightsum/120.0f)-1.0f;
+        return (l,r);
+    }
     public int CalculateNewFreq()
     {
         int step=_apuRegisters[0x10-0x10]&0x07;
@@ -375,6 +413,14 @@ public class APU
                     if(_channel4LengthTimer==0) _channel4Enabled=false;
                 }
             }
+        }
+        _sampleTimer+=cycles;
+        while(_sampleTimer>=CyclesPerSample)
+        {
+            _sampleTimer-=CyclesPerSample;
+            var (left,right)=MixSamples();
+            AudioBuffer.Enqueue(left);
+            AudioBuffer.Enqueue(right);
         }
     }
 }

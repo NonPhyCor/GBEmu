@@ -32,6 +32,10 @@ public class CPU
         _bus=bus;
         PC=0x100;
         SP=0xFFFE;
+        AF = 0x01B0;
+        BC = 0x0013;
+        DE = 0x00D8;
+        HL = 0x014D;
     }
 
     public ushort BC

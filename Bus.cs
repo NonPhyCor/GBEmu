@@ -118,7 +118,7 @@ public class Bus
                 case 2: threshold=64;break;
                 case 3: threshold=256;break;
             }
-            if(this.timerCounter>=threshold)
+            while(this.timerCounter>=threshold)
             {
                 this.timerCounter-=threshold;
                 _io[0x05]+=1;
