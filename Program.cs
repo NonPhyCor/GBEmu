@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using Raylib_cs;
-
 class Program
 {
     static void Main(string[] args)
@@ -12,10 +11,9 @@ class Program
             Console.WriteLine($"Error: {romPath} not found!");
             return;
         }
-        Bus bus = new Bus();
-        bus.JoypadController._bus = bus;
         byte[] romData = File.ReadAllBytes(romPath);
-        bus.LoadCartridge(romData);
+        Bus bus = new Bus(romData);
+        bus.JoypadController._bus = bus;
         CPU cpu = new CPU(bus);
         Raylib.InitWindow(640, 576, "Game Boy Emulator");
         Raylib.SetTargetFPS(60);

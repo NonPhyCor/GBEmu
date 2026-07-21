@@ -15,13 +15,10 @@ public class Bus
     private int timerCounter=0;
     public APU APUController;
     public Joypad JoypadController;
-    public Bus()
+    public Bus(byte[] RomData)
     {
         JoypadController = new Joypad(this);
         APUController = new APU(this);
-    }
-    public void LoadCartridge(byte[] RomData)
-    {
         _fullRomData=RomData;
     }
     public byte Read(ushort address)
