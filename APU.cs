@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 
 public class APU
 {
@@ -29,6 +30,13 @@ public class APU
     private bool _channel2EnvIncrease=false;
     private int Channel2DutyPattern=>(_apuRegisters[0x16-0x10]>>6)&0x03;
     private int Channel2Frequency=>(_apuRegisters[0x18-0x10]|((_apuRegisters[0x19-0x10]&0x07)<<8));
+
+    private int _channel3Timer=0;
+    private int _channel3Position=0;
+    private bool _channel3Enabled=false;
+    private int Channel3Frequency=>(((_apuRegisters[0x1E-0x10]&0x07)<<8)|(_apuRegisters[0x1D-0x10]));
+    private bool Channel3DacEnable=>(_apuRegisters[0x1A-0x10]&0x80)!=0;
+    private int Channel3VolumeCode=>((_apuRegisters[0x1C-0x10]>>5)&0x03);
 
     private static readonly int[,] DutyCycles =
     {
@@ -101,6 +109,16 @@ public class APU
                     else    _channel2EnvTimer=_channel2EnvPace;
                 }
             }
+            if(address==0xFF1E)
+            {
+                if((data&0x80)!=0)
+                {
+                    if(Channel3DacEnable)
+                        _channel3Enabled=true;
+                    _channel3Timer=(2048-Channel3Frequency)*2;
+                    _channel3Position=0;
+                }
+            }
         }
         else if(address>=0xFF30 && address<=0xFF3F)
             _waveRAM[address-0xFF30]=data;
@@ -121,6 +139,24 @@ public class APU
         int pattern=Channel2DutyPattern;
         int stepValue=DutyCycles[pattern,_channel2DutyIndex];
         return stepValue*_channel2Volume;
+    }
+    public int GetChannel3Sample()
+    {
+        if(!_channel3Enabled||!Channel3DacEnable)   return 0;
+        int byteIndex=_channel3Position/2;
+        int sample;
+        if(_channel3Position%2==0)
+            sample=(_waveRAM[byteIndex]>>4)&0x0F;
+        else
+            sample=_waveRAM[byteIndex]&0x0F;
+        switch(Channel3VolumeCode)
+        {
+            case 0:return 0;
+            case 1:return sample;
+            case 2:return sample>>1;
+            case 3:return sample>>2;
+            default:return 0;
+        }
     }
     public int CalculateNewFreq()
     {
@@ -160,6 +196,15 @@ public class APU
             {
                 _channel2Timer+=(2048-Channel2Frequency)*4;
                 _channel2DutyIndex=(_channel2DutyIndex+1)%8;
+            }
+        }
+        if(_channel3Enabled)
+        {
+            _channel3Timer-=cycles;
+            if(_channel3Timer<=0)
+            {
+                _channel3Timer+=(2048-Channel3Frequency)*2;
+                _channel3Position=(_channel3Position+1)%32;
             }
         }
         _frameSequenceTimer-=cycles;
