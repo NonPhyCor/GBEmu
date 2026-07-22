@@ -100,7 +100,6 @@ public class CPU
         sbyte sval;
         byte opcode = Read8Bit();
         ushort a;
-#pragma warning disable CS1717 // Assignment made to same variable
         switch (opcode)
         {
             case 0x00:  t=4;break;

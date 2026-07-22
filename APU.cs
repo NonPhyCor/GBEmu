@@ -76,6 +76,14 @@ public class APU
     };
     private int _frameSequenceTimer=8192;
     private int _frameSequencerStep=0;
+    private static readonly byte[] ReadMasks = {
+    0x80, 0x3F, 0x00, 0xFF, 0xBF, // NR10 - NR14
+    0xFF, 0x3F, 0x00, 0xFF, 0xBF, // NR20 - NR24 (NR20 is unused)
+    0x7F, 0xFF, 0x9F, 0xFF, 0xBF, // NR30 - NR34
+    0xFF, 0xFF, 0x00, 0x00, 0xBF, // NR40 - NR44
+    0x00, 0x00, 0x70, 0xFF, 0xFF, // NR50 - NR52, plus unused space
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF // 0xFF27-0xFF2F
+};
     public APU(Bus bus)
     {
         _bus = bus;
@@ -93,8 +101,8 @@ public class APU
             if(_channel4Enabled)    status|=0x08;
             return status;
         }
-        if(address>=0xFF10 && address<=0xFF2F)
-            return _apuRegisters[address-0xFF10];
+        if (address >= 0xFF10 && address <= 0xFF2F)
+            return (byte)(_apuRegisters[address - 0xFF10] | ReadMasks[address - 0xFF10]);   
         else if(address>=0xFF30 && address<=0xFF3F)
             return _waveRAM[address-0xFF30];
         return 0xFF;
@@ -124,7 +132,11 @@ public class APU
             {
                 if((data&0x80)!=0)
                 {
-                    _channel1Enabled=true;
+                    if ((_apuRegisters[0x12 - 0x10] & 0xF8) != 0)
+                        _channel1Enabled = true;
+                
+                    _channel1DutyIndex = 0;
+                    //_channel1Enabled=true;
                     _channel1Timer=(2048-Channel1Frequency)*4;
                     _channel1Volume=(_apuRegisters[0x12-0x10]>>4)&0x0F;
                     _channel1EnvPace=_apuRegisters[0x12-0x10]&0x07;
@@ -146,7 +158,11 @@ public class APU
             {
                 if((data&0x80)!=0)
                 {
-                    _channel2Enabled=true;
+                    if ((_apuRegisters[0x17 - 0x10] & 0xF8) != 0)
+                        _channel2Enabled = true;
+                
+                    _channel2DutyIndex = 0;
+                    //_channel2Enabled=true;
                     _channel2Timer=(2048-Channel2Frequency)*4;
                     _channel2Volume=(_apuRegisters[0x17-0x10]>>4)&0x0F;
                     _channel2EnvPace=_apuRegisters[0x17-0x10]&0x07;
@@ -193,6 +209,13 @@ public class APU
         }
         else if(address>=0xFF30 && address<=0xFF3F)
             _waveRAM[address-0xFF30]=data;
+        if (address == 0xFF12 && (data & 0xF8) == 0)
+        _channel1Enabled = false;
+        if (address == 0xFF17 && (data & 0xF8) == 0)
+            _channel2Enabled = false;
+
+        if (address == 0xFF21 && (data & 0xF8) == 0)
+            _channel4Enabled = false;
 
     }
     public int GetChannel1Sample()
@@ -254,8 +277,8 @@ public class APU
         if(Rch4)    rightsum+=c4;
         leftsum*=(L+1);
         rightsum*=(R+1);
-        float l=(leftsum/120.0f)-1.0f;
-        float r=(rightsum/120.0f)-1.0f;
+        float l=(leftsum/240.0f)-1.0f;
+        float r=(rightsum/240.0f)-1.0f;
         return (l,r);
     }
     public int CalculateNewFreq()
